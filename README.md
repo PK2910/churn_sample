@@ -95,17 +95,17 @@ Beyond feature importance, `statsmodels.Logit` was used to run a Wald significan
 
 ## Deployment
 
-```
-┌─────────────────┐      predict       ┌──────────────────────┐
-│  Streamlit UI    │ ──────────────────▶│   FastAPI + XGBoost   │
-│  (local)          │                     │   (Docker, on Render) │
-│                    │◀──────────────────  │                        │
-└─────────────────┘   probability        └──────────────────────┘
+```mermaid
+graph LR
+    A["Streamlit UI<br/>(Docker, on Render)"] -- "POST /predict" --> B["FastAPI + XGBoost<br/>(Docker, on Render)"]
+    B -- "churn probability" --> A
 ```
 
+Both pieces are separate Render Web Services, each built from its own Dockerfile — this is a deliberate choice, not just two folders: Render only routes public traffic to a single port per service, so the API and the UI could not both be reachable from one combined container even if they were bundled into a single Dockerfile.
+
 - **API** (`api/`): a FastAPI service wrapping the tuned XGBoost pipeline. Validates requests with Pydantic, returns a churn probability and a boolean prediction at the deployment threshold. Containerized with Docker, using a dynamic `PORT` (via `${PORT:-8000}`) so it runs the same way locally and on a cloud host.
-- **Hosting**: deployed on [Render](https://render.com)'s free tier, built directly from the `api/Dockerfile`.
-- **Frontend** (`streamlit_app.py`): a form-based UI so predictions don't require hand-editing JSON — fills in customer details, calls the API, and displays the churn probability and prediction. Currently run locally, pointed at the API; deploying it to Streamlit Community Cloud is a planned next step.
+- **Frontend** (`streamlit_ui/`): a form-based UI so predictions don't require hand-editing JSON — fills in customer details, calls the API, and displays the churn probability and prediction. Same dynamic-`PORT` Docker setup as the API; reads the API's URL from an `API_URL` environment variable, so the same code runs locally (against `localhost:8000`) and in the cloud (against the deployed API's Render URL) without any code changes.
+- **Hosting**: both services deployed on [Render](https://render.com)'s free tier.
 - **Logging**: every prediction (inputs + output) is appended to `prediction_logs.jsonl` in JSON Lines format — a lightweight, append-only audit trail of what the model was asked and what it answered.
 
 ## Project structure
@@ -115,16 +115,20 @@ Churn-Practice/
 ├── sample-main.ipynb          # main analysis + modeling notebook
 ├── eda.ipynb                  # exploratory data analysis
 ├── preprocessing.py           # shared preprocessing functions (importable module)
-├── streamlit_app.py           # Streamlit frontend
+├── streamlit_app.py           # Streamlit frontend (local copy, for local runs)
 ├── prediction_logs.jsonl      # append-only log of live predictions
 ├── docs/images/                # exported graphs used in this README
-└── api/
-    ├── app.py                 # FastAPI app
-    ├── preprocessing.py       # copy of preprocessing.py (needed in the Docker build context)
+├── api/
+│   ├── app.py                 # FastAPI app
+│   ├── preprocessing.py       # copy of preprocessing.py (needed in the Docker build context)
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   ├── xgb_pipeline.joblib     # fitted preprocessing pipeline
+│   └── xgb_best_model.joblib   # tuned XGBoost model
+└── streamlit_ui/
+    ├── streamlit_app.py        # copy of streamlit_app.py (needed in the Docker build context)
     ├── requirements.txt
-    ├── Dockerfile
-    ├── xgb_pipeline.joblib     # fitted preprocessing pipeline
-    └── xgb_best_model.joblib   # tuned XGBoost model
+    └── Dockerfile
 ```
 
 ## Running locally
